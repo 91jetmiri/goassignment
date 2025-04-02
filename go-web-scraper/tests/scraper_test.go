@@ -12,7 +12,7 @@ func TestScraper(t *testing.T) {
 	defer database.CloseDB()
 
 	url := "https://example.com"
-	scraper.Scrape(url)
+	scraper.ScrapeMultiple([]string{url})
 
 	//  check the database for inserted data
 	var count int

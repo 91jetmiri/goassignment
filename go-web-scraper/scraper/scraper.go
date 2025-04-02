@@ -6,12 +6,42 @@ import (
 	"go-web-scraper/models"
 	"net/http"
 	"strings"
+	"sync"
 
 	"golang.org/x/net/html"
 )
 
-// Scrape function to fetch and parse HTML
-func Scrape(url string) {
+// ScrapeMultiple scrapes multiple URLs concurrently
+func ScrapeMultiple(urls []string) {
+	var wg sync.WaitGroup
+	dataChannel := make(chan models.ScrapedData, len(urls)*10) // Buffered channel
+
+	// Launch a goroutine for each URL
+	for _, url := range urls {
+		wg.Add(1)
+		go func(u string) {
+			defer wg.Done()
+			scrape(u, dataChannel)
+		}(url)
+	}
+
+	// Close the channel once all scraping is done
+	go func() {
+		wg.Wait()
+		close(dataChannel)
+	}()
+
+	// Store data from channel into the database
+	for data := range dataChannel {
+		_, err := database.DB.Exec("INSERT INTO scraped_data (title, link) VALUES ($1, $2)", data.Title, data.Link)
+		if err != nil {
+			fmt.Println("Error inserting data:", err)
+		}
+	}
+}
+
+// scrape extracts data from a single page and sends it to the channel
+func scrape(url string, dataChannel chan<- models.ScrapedData) {
 	resp, err := http.Get(url)
 	if err != nil {
 		fmt.Println("Error fetching the page:", err)
@@ -25,30 +55,30 @@ func Scrape(url string) {
 		return
 	}
 
-	var titles []models.ScrapedData
-	var scrape func(*html.Node)
-	scrape = func(n *html.Node) {
+	var extractLinks func(*html.Node)
+	extractLinks = func(n *html.Node) {
 		if n.Type == html.ElementNode && n.Data == "a" {
+			var title string
+			var link string
+
 			for _, attr := range n.Attr {
 				if attr.Key == "href" {
-					title := strings.TrimSpace(n.FirstChild.Data)
-					if title != "" {
-						titles = append(titles, models.ScrapedData{Title: title, Link: attr.Val})
-					}
+					link = attr.Val
 				}
+			}
+
+			if n.FirstChild != nil {
+				title = strings.TrimSpace(n.FirstChild.Data)
+			}
+
+			if title != "" && link != "" {
+				dataChannel <- models.ScrapedData{Title: title, Link: link}
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
-			scrape(c)
+			extractLinks(c)
 		}
 	}
-	scrape(doc)
 
-	// Store results in DB
-	for _, item := range titles {
-		_, err := database.DB.Exec("INSERT INTO scraped_data (title, link) VALUES ($1, $2)", item.Title, item.Link)
-		if err != nil {
-			fmt.Println("Error inserting data:", err)
-		}
-	}
+	extractLinks(doc)
 }

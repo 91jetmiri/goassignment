@@ -11,9 +11,13 @@ import (
 
 // ScrapeHandler triggers the web scraper
 func ScrapeHandler(w http.ResponseWriter, r *http.Request) {
-	url := "https://example.com"
-	go scraper.Scrape(url) // Runs scraper in a goroutine
-	fmt.Fprintln(w, "Scraping started!")
+	urls := []string{
+		"https://example.com",
+		"https://example2.com",
+	}
+
+	go scraper.ScrapeMultiple(urls) // Run in background
+	fmt.Fprintln(w, "Scraping started concurrently!")
 }
 
 // GetDataHandler retrieves scraped data from the database
